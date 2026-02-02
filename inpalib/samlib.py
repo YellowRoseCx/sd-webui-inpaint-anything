@@ -73,6 +73,7 @@ def check_inputs_generate_sam_masks(
         input_image: Union[np.ndarray, Image.Image],
         sam_id: str,
         anime_style_chk: bool = False,
+        use_default_parameter_chk: bool = False,
 ) -> None:
     """Check generate SAM masks inputs.
 
@@ -80,6 +81,7 @@ def check_inputs_generate_sam_masks(
         input_image (Union[np.ndarray, Image.Image]): input image
         sam_id (str): SAM ID
         anime_style_chk (bool): anime style check
+        use_default_parameter_chk (bool): use default parameter check
 
     Returns:
         None
@@ -92,6 +94,9 @@ def check_inputs_generate_sam_masks(
 
     if anime_style_chk is None or not isinstance(anime_style_chk, bool):
         raise ValueError("Invalid anime style check")
+
+    if use_default_parameter_chk is None or not isinstance(use_default_parameter_chk, bool):
+        raise ValueError("Invalid use default parameter check")
 
 
 def convert_input_image(input_image: Union[np.ndarray, Image.Image]) -> np.ndarray:
@@ -119,6 +124,7 @@ def generate_sam_masks(
         input_image: Union[np.ndarray, Image.Image],
         sam_id: str,
         anime_style_chk: bool = False,
+        use_default_parameter_chk: bool = False,
 ) -> List[Dict[str, Any]]:
     """Generate SAM masks.
 
@@ -126,18 +132,19 @@ def generate_sam_masks(
         input_image (Union[np.ndarray, Image.Image]): input image
         sam_id (str): SAM ID
         anime_style_chk (bool): anime style check
+        use_default_parameter_chk (bool): use default parameter check
 
     Returns:
         List[Dict[str, Any]]: SAM masks
     """
-    check_inputs_generate_sam_masks(input_image, sam_id, anime_style_chk)
+    check_inputs_generate_sam_masks(input_image, sam_id, anime_style_chk, use_default_parameter_chk)
     input_image = convert_input_image(input_image)
 
     sam_checkpoint = sam_file_path(sam_id)
-    sam_mask_generator = get_sam_mask_generator(sam_checkpoint, anime_style_chk)
+    sam_mask_generator = get_sam_mask_generator(sam_checkpoint, anime_style_chk, use_default_parameter_chk)
     ia_logging.info(f"{sam_mask_generator.__class__.__name__} {sam_id}")
 
-    if "sam2_" in sam_id:
+    if "sam2_" in sam_id or "sam2.1_" in sam_id:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         torch_dtype = torch.bfloat16 if check_bfloat16_support() else torch.float16
         with torch.inference_mode(), torch.autocast(device, dtype=torch_dtype):

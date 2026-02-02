@@ -25,6 +25,10 @@ def get_sam_model_ids():
         list: SAM model ids list
     """
     sam_model_ids = [
+        "sam2.1_hiera_large.pt",
+        "sam2.1_hiera_base_plus.pt",
+        "sam2.1_hiera_small.pt",
+        "sam2.1_hiera_tiny.pt",
         "sam2_hiera_large.pt",
         "sam2_hiera_base_plus.pt",
         "sam2_hiera_small.pt",

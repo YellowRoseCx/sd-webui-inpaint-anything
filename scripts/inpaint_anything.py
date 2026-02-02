@@ -66,6 +66,8 @@ def download_model(sam_model_id):
         url_sam = "https://huggingface.co/Uminosachi/MobileSAM/resolve/main/" + sam_model_id
     elif "sam2_" in sam_model_id:
         url_sam = "https://dl.fbaipublicfiles.com/segment_anything_2/072824/" + sam_model_id
+    elif "sam2.1_" in sam_model_id:
+        url_sam = "https://dl.fbaipublicfiles.com/segment_anything_2/092824/" + sam_model_id
     else:
         url_sam = "https://dl.fbaipublicfiles.com/segment_anything/" + sam_model_id
 
@@ -169,7 +171,7 @@ def run_padding(input_image, pad_scale_width, pad_scale_height, pad_lr_barance, 
 
 @offload_reload_decorator
 @clear_cache_decorator
-def run_sam(input_image, sam_model_id, sam_image, anime_style_chk=False):
+def run_sam(input_image, sam_model_id, sam_image, anime_style_chk=False, use_default_parameter_chk=False):
     global sam_dict
     if not inpalib.sam_file_exists(sam_model_id):
         ret_sam_image = None if sam_image is None else gr.update()
@@ -188,7 +190,7 @@ def run_sam(input_image, sam_model_id, sam_image, anime_style_chk=False):
     ia_logging.info(f"input_image: {input_image.shape} {input_image.dtype}")
 
     try:
-        sam_masks = inpalib.generate_sam_masks(input_image, sam_model_id, anime_style_chk)
+        sam_masks = inpalib.generate_sam_masks(input_image, sam_model_id, anime_style_chk, use_default_parameter_chk)
         sam_masks = inpalib.sort_masks_by_area(sam_masks)
         sam_masks = inpalib.insert_mask_to_sam_masks(sam_masks, sam_dict["pad_mask"])
 
@@ -927,6 +929,9 @@ def on_ui_tabs():
                     with gr.Column():
                         anime_style_chk = gr.Checkbox(label="Anime Style (Up Detection, Down mask Quality)", elem_id="anime_style_chk",
                                                       show_label=True, interactive=True)
+                        use_default_parameter_chk = gr.Checkbox(label="Use Default Parameters (SAM 2 / SAM 2.1 only)",
+                                                                elem_id="use_default_parameter_chk",
+                                                                show_label=True, interactive=True)
                     with gr.Column():
                         sam_btn = gr.Button("Run Segment Anything", elem_id="sam_btn", variant="primary", interactive=False)
 
@@ -1223,7 +1228,7 @@ def on_ui_tabs():
                 fn=None, inputs=None, outputs=None, _js="inpaintAnything_initSamSelMask")
             padding_btn.click(run_padding, inputs=[input_image, pad_scale_width, pad_scale_height, pad_lr_barance, pad_tb_barance, padding_mode],
                               outputs=[input_image, status_text])
-            sam_btn.click(run_sam, inputs=[input_image, sam_model_id, sam_image, anime_style_chk], outputs=[sam_image, status_text]).then(
+            sam_btn.click(run_sam, inputs=[input_image, sam_model_id, sam_image, anime_style_chk, use_default_parameter_chk], outputs=[sam_image, status_text]).then(
                 fn=None, inputs=None, outputs=None, _js="inpaintAnything_clearSamMask")
             select_btn.click(select_mask, inputs=[input_image, sam_image, invert_chk, ignore_black_chk, sel_mask], outputs=[sel_mask]).then(
                 fn=None, inputs=None, outputs=None, _js="inpaintAnything_clearSelMask")
