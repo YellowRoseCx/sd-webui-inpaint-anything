@@ -527,6 +527,20 @@ onUiLoaded(async () => {
         // Add mouse event handlers
         targetElement.addEventListener("mousemove", handleMouseMove);
         targetElement.addEventListener("mouseleave", handleMouseLeave);
+
+        // Handle wheel events for zooming
+        function handleWheel(event) {
+            if (fullScreenMode) {
+                event.preventDefault();
+                const zoomSpeed = 0.1;
+                const newZoomLevel = elemData[elemId].zoomLevel * (event.deltaY > 0 ? (1 - zoomSpeed) : (1 + zoomSpeed));
+                elemData[elemId].zoomLevel = Math.max(0.1, newZoomLevel);
+
+                targetElement.style.transform = `scale(${elemData[elemId].zoomLevel}) translate(${elemData[elemId].panX}px, ${elemData[elemId].panY}px)`;
+            }
+        }
+
+        targetElement.addEventListener("wheel", handleWheel, { passive: false });
     }
 
     applyZoomAndPan(elementIDs.ia_sam_image);

@@ -73,7 +73,6 @@ def check_inputs_generate_sam_masks(
         input_image: Union[np.ndarray, Image.Image],
         sam_id: str,
         anime_style_chk: bool = False,
-        use_default_parameter_chk: bool = False,
 ) -> None:
     """Check generate SAM masks inputs.
 
@@ -81,7 +80,6 @@ def check_inputs_generate_sam_masks(
         input_image (Union[np.ndarray, Image.Image]): input image
         sam_id (str): SAM ID
         anime_style_chk (bool): anime style check
-        use_default_parameter_chk (bool): use default parameter check
 
     Returns:
         None
@@ -94,9 +92,6 @@ def check_inputs_generate_sam_masks(
 
     if anime_style_chk is None or not isinstance(anime_style_chk, bool):
         raise ValueError("Invalid anime style check")
-
-    if use_default_parameter_chk is None or not isinstance(use_default_parameter_chk, bool):
-        raise ValueError("Invalid use default parameter check")
 
 
 def convert_input_image(input_image: Union[np.ndarray, Image.Image]) -> np.ndarray:
@@ -124,7 +119,15 @@ def generate_sam_masks(
         input_image: Union[np.ndarray, Image.Image],
         sam_id: str,
         anime_style_chk: bool = False,
-        use_default_parameter_chk: bool = False,
+        pred_iou_thresh: float = 0.88,
+        stability_score_thresh: float = 0.95,
+        stability_score_offset: float = 1.0,
+        box_nms_thresh: float = 0.7,
+        crop_n_layers: int = 0,
+        crop_nms_thresh: float = 0.7,
+        crop_overlap_ratio: float = 512 / 1500,
+        crop_n_points_downscale_factor: int = 1,
+        min_mask_region_area: int = 0,
 ) -> List[Dict[str, Any]]:
     """Generate SAM masks.
 
@@ -132,16 +135,35 @@ def generate_sam_masks(
         input_image (Union[np.ndarray, Image.Image]): input image
         sam_id (str): SAM ID
         anime_style_chk (bool): anime style check
-        use_default_parameter_chk (bool): use default parameter check
+        pred_iou_thresh (float): prediction iou threshold
+        stability_score_thresh (float): stability score threshold
+        stability_score_offset (float): stability score offset
+        box_nms_thresh (float): box nms threshold
+        crop_n_layers (int): crop n layers
+        crop_nms_thresh (float): crop nms threshold
+        crop_overlap_ratio (float): crop overlap ratio
+        crop_n_points_downscale_factor (int): crop n points downscale factor
+        min_mask_region_area (int): min mask region area
 
     Returns:
         List[Dict[str, Any]]: SAM masks
     """
-    check_inputs_generate_sam_masks(input_image, sam_id, anime_style_chk, use_default_parameter_chk)
+    check_inputs_generate_sam_masks(input_image, sam_id, anime_style_chk)
     input_image = convert_input_image(input_image)
 
     sam_checkpoint = sam_file_path(sam_id)
-    sam_mask_generator = get_sam_mask_generator(sam_checkpoint, anime_style_chk, use_default_parameter_chk)
+    sam_mask_generator = get_sam_mask_generator(
+        sam_checkpoint, anime_style_chk,
+        pred_iou_thresh=pred_iou_thresh,
+        stability_score_thresh=stability_score_thresh,
+        stability_score_offset=stability_score_offset,
+        box_nms_thresh=box_nms_thresh,
+        crop_n_layers=crop_n_layers,
+        crop_nms_thresh=crop_nms_thresh,
+        crop_overlap_ratio=crop_overlap_ratio,
+        crop_n_points_downscale_factor=crop_n_points_downscale_factor,
+        min_mask_region_area=min_mask_region_area,
+    )
     ia_logging.info(f"{sam_mask_generator.__class__.__name__} {sam_id}")
 
     if "sam2_" in sam_id or "sam2.1_" in sam_id:
