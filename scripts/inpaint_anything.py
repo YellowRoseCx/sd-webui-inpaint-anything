@@ -64,6 +64,8 @@ def download_model(sam_model_id):
         url_sam = "https://huggingface.co/Uminosachi/FastSAM/resolve/main/" + sam_model_id
     elif "mobile_sam" in sam_model_id:
         url_sam = "https://huggingface.co/Uminosachi/MobileSAM/resolve/main/" + sam_model_id
+    elif "sam3_" in sam_model_id:
+        url_sam = "https://huggingface.co/facebook/sam3/resolve/main/sam3.pt"
     elif "sam2_" in sam_model_id:
         url_sam = "https://dl.fbaipublicfiles.com/segment_anything_2/072824/" + sam_model_id
     elif "sam2.1_" in sam_model_id:
@@ -176,7 +178,8 @@ def run_sam(input_image, sam_model_id, sam_image, anime_style_chk=False,
             stability_score_offset=1.0, box_nms_thresh=0.7,
             crop_n_layers=0, crop_nms_thresh=0.7,
             crop_overlap_ratio=512 / 1500, crop_n_points_downscale_factor=1,
-            min_mask_region_area=0):
+            min_mask_region_area=0,
+            sam_text_prompt=None):
     global sam_dict
     if not inpalib.sam_file_exists(sam_model_id):
         ret_sam_image = None if sam_image is None else gr.update()
@@ -201,7 +204,8 @@ def run_sam(input_image, sam_model_id, sam_image, anime_style_chk=False,
             stability_score_offset, box_nms_thresh,
             crop_n_layers, crop_nms_thresh,
             crop_overlap_ratio, crop_n_points_downscale_factor,
-            min_mask_region_area)
+            min_mask_region_area,
+            sam_text_prompt)
         sam_masks = inpalib.sort_masks_by_area(sam_masks)
         sam_masks = inpalib.insert_mask_to_sam_masks(sam_masks, sam_dict["pad_mask"])
 
@@ -936,6 +940,9 @@ def on_ui_tabs():
                             with gr.Column():
                                 padding_btn = gr.Button("Run Padding", elem_id="padding_btn")
 
+                with gr.Row():
+                    sam_text_prompt = gr.Textbox(label="SAM 3 Text Prompt", elem_id="sam_text_prompt", visible=False)
+
                 with gr.Accordion("SAM 2 Parameters", elem_id="sam2_parameters", open=True):
                     with gr.Row():
                         with gr.Column():
@@ -1262,6 +1269,13 @@ def on_ui_tabs():
             def sam_reset_params():
                 return [0.8, 0.95, 1.0, 0.7, 0, 0.7, 512 / 1500, 1, 0]
 
+            def sam_model_id_change(sam_model_id):
+                if "sam3_" in sam_model_id:
+                    return gr.update(visible=True)
+                return gr.update(visible=False)
+
+            sam_model_id.change(sam_model_id_change, inputs=[sam_model_id], outputs=[sam_text_prompt])
+
             sam_reset_btn.click(
                 fn=sam_reset_params,
                 inputs=None,
@@ -1274,7 +1288,8 @@ def on_ui_tabs():
                         stability_score_offset, box_nms_thresh,
                         crop_n_layers, crop_nms_thresh,
                         crop_overlap_ratio, crop_n_points_downscale_factor,
-                        min_mask_region_area],
+                        min_mask_region_area,
+                        sam_text_prompt],
                 outputs=[sam_image, status_text]).then(
                 fn=None, inputs=None, outputs=None, _js="inpaintAnything_clearSamMask")
             select_btn.click(select_mask, inputs=[input_image, sam_image, invert_chk, ignore_black_chk, sel_mask], outputs=[sel_mask]).then(

@@ -20,6 +20,9 @@ from segment_anything_hq import SamAutomaticMaskGenerator as SamAutomaticMaskGen
 from segment_anything_hq import SamPredictor as SamPredictorHQ
 from segment_anything_hq import sam_model_registry as sam_model_registry_hq
 
+# SAM 3
+from sam3.model_builder import build_sam3_image_model
+from ia_sam3_wrapper import Sam3Wrapper
 
 def check_bfloat16_support() -> bool:
     if torch.cuda.is_available():
@@ -63,6 +66,11 @@ sam2_model_registry = {
     "sam2.1_hiera_tiny": partial(partial_from_end(rename_build_sam2, **end_kwargs), "sam2.1_hiera_t.yaml"),
 }
 
+# SAM 3
+sam3_model_registry = {
+    "sam3_large": partial(build_sam3_image_model, device="cpu", eval_mode=True, load_from_HF=False),
+}
+
 
 @torch_default_load_cd()
 def get_sam_mask_generator(
@@ -71,7 +79,8 @@ def get_sam_mask_generator(
     stability_score_offset=1.0, box_nms_thresh=0.7,
     crop_n_layers=0, crop_nms_thresh=0.7,
     crop_overlap_ratio=512 / 1500, crop_n_points_downscale_factor=1,
-    min_mask_region_area=0
+    min_mask_region_area=0,
+    sam_text_prompt=None, # Added
 ):
     """Get SAM mask generator.
 
@@ -87,11 +96,13 @@ def get_sam_mask_generator(
         crop_overlap_ratio (float): crop overlap ratio
         crop_n_points_downscale_factor (int): crop n points downscale factor
         min_mask_region_area (int): min mask region area
+        sam_text_prompt (str): SAM 3 text prompt
 
     Returns:
         SamAutomaticMaskGenerator or None: SAM mask generator
     """
     points_per_batch = 64
+    SamAutomaticMaskGeneratorLocal = None
     if "_hq_" in os.path.basename(sam_checkpoint):
         model_type = os.path.basename(sam_checkpoint)[7:12]
         sam_model_registry_local = sam_model_registry_hq
@@ -112,6 +123,11 @@ def get_sam_mask_generator(
         sam_model_registry_local = sam2_model_registry
         SamAutomaticMaskGeneratorLocal = SAM2AutomaticMaskGenerator
         points_per_batch = 128
+    elif "sam3_" in os.path.basename(sam_checkpoint):
+        model_type = os.path.splitext(os.path.basename(sam_checkpoint))[0]
+        sam_model_registry_local = sam3_model_registry
+        SamAutomaticMaskGeneratorLocal = Sam3Wrapper
+        points_per_batch = None # Not used for SAM 3 in wrapper (yet)
     else:
         model_type = os.path.basename(sam_checkpoint)[4:9]
         sam_model_registry_local = sam_model_registry
@@ -136,7 +152,15 @@ def get_sam_mask_generator(
             sam2_gen_kwargs.update(dict(points_per_side=32, points_per_batch=64, crop_n_points_downscale_factor=1))
 
     if os.path.isfile(sam_checkpoint):
-        sam = sam_model_registry_local[model_type](checkpoint=sam_checkpoint)
+        # Handle model creation
+        if "sam3_" in model_type:
+             # SAM 3 requires checkpoint path in kwargs if not loading from HF, but we are loading local file
+             # build_sam3_image_model arg is `checkpoint_path`
+             sam = sam_model_registry_local[model_type](checkpoint_path=sam_checkpoint)
+        else:
+             sam = sam_model_registry_local[model_type](checkpoint=sam_checkpoint)
+
+        # Move to device
         if platform.system() == "Darwin":
             if "FastSAM" in os.path.basename(sam_checkpoint) or not ia_check_versions.torch_mps_is_available:
                 sam.to(device=torch.device("cpu"))
@@ -148,10 +172,17 @@ def get_sam_mask_generator(
                 sam.to(device=devices.cpu)
             else:
                 sam.to(device=devices.device)
-        sam_gen_kwargs = dict(
-            model=sam, points_per_batch=points_per_batch, pred_iou_thresh=pred_iou_thresh, stability_score_thresh=stability_score_thresh)
+
+        # Generator init
+        if "sam3_" in model_type:
+            sam_gen_kwargs = dict(model=sam, text_prompt=sam_text_prompt)
+        else:
+            sam_gen_kwargs = dict(
+                model=sam, points_per_batch=points_per_batch, pred_iou_thresh=pred_iou_thresh, stability_score_thresh=stability_score_thresh)
+
         if "sam2_" in model_type or "sam2.1_" in model_type:
             sam_gen_kwargs.update(sam2_gen_kwargs)
+
         sam_mask_generator = SamAutomaticMaskGeneratorLocal(**sam_gen_kwargs)
     else:
         sam_mask_generator = None
@@ -169,7 +200,7 @@ def get_sam_predictor(sam_checkpoint):
     Returns:
         SamPredictor or None: SAM predictor
     """
-    # model_type = "vit_h"
+    SamPredictorLocal = None
     if "_hq_" in os.path.basename(sam_checkpoint):
         model_type = os.path.basename(sam_checkpoint)[7:12]
         sam_model_registry_local = sam_model_registry_hq
@@ -180,13 +211,79 @@ def get_sam_predictor(sam_checkpoint):
         model_type = "vit_t"
         sam_model_registry_local = sam_model_registry_mobile
         SamPredictorLocal = SamPredictorMobile
+    elif "sam3_" in os.path.basename(sam_checkpoint):
+        model_type = os.path.splitext(os.path.basename(sam_checkpoint))[0]
+        sam_model_registry_local = sam3_model_registry
+        SamPredictorLocal = Sam3Wrapper
+    elif "sam2_" in os.path.basename(sam_checkpoint) or "sam2.1_" in os.path.basename(sam_checkpoint):
+        # SAM 2 predictor uses SAM2ImagePredictor logic, usually embedded in extension via SAM 2 wrapper or similar?
+        # The existing code didn't seem to have explicit SAM 2 predictor logic in the original file
+        # except falling back to something?
+        # Wait, the original code had:
+        # elif "sam2_" ...: model_type = ...; sam_model_registry_local = sam2_model_registry; SamAutomaticMaskGeneratorLocal = SAM2AutomaticMaskGenerator
+        # BUT for predictor:
+        # It checked "FastSAM", "mobile_sam", "_hq_".
+        # It fell back to `sam_model_registry` and `SamPredictor`.
+        # SAM 2 models in `sam_model_registry`? No, they are in `sam2_model_registry`.
+        # The original code MIGHT NOT have supported SAM 2 predictor fully in `get_sam_predictor`
+        # OR it relied on `SamPredictor` being compatible (unlikely)
+        # OR it relied on `sam2` models being loadable by `sam_model_registry` (also unlikely).
+        # However, I should check if I missed SAM 2 in predictor logic in original file.
+        # Original file:
+        # ...
+        # elif "mobile_sam" ...
+        # else: ... model_type ... sam_model_registry ... SamPredictor
+        #
+        # It seems SAM 2 predictor support might be missing or implicit?
+        # Let's verify `sam2_model_registry` usage. It was defined but used in `get_sam_mask_generator`.
+        # It was NOT used in `get_sam_predictor`.
+        # If I am to add SAM 3, I should ensure I don't break existing behavior.
+        # But if existing behavior for SAM 2 was broken, I can fix it or leave it.
+        # Let's focus on SAM 3.
+
+        # NOTE: SAM 2 support in this repo might be limited to Automatic Mask Generator?
+        # Let's check `scripts/inpaint_anything.py` to see where `get_sam_predictor` is used.
+        # It is NOT used in `scripts/inpaint_anything.py`. `run_sam` calls `inpalib.generate_sam_masks`.
+        # `inpalib.generate_sam_masks` calls `get_sam_mask_generator`.
+
+        # `get_sam_predictor` seems unused in the main flow of `inpaint_anything.py`.
+        # It might be used by other scripts or future features.
+        # I will implement SAM 3 predictor support just in case.
+        pass
+
     else:
         model_type = os.path.basename(sam_checkpoint)[4:9]
         sam_model_registry_local = sam_model_registry
         SamPredictorLocal = SamPredictor
 
+    # Re-evaluate logic for default (SAM 1) vs others
+    if "sam3_" not in os.path.basename(sam_checkpoint) and \
+       "sam2_" not in os.path.basename(sam_checkpoint) and \
+       "sam2.1_" not in os.path.basename(sam_checkpoint) and \
+       "_hq_" not in os.path.basename(sam_checkpoint) and \
+       "FastSAM" not in os.path.basename(sam_checkpoint) and \
+       "mobile_sam" not in os.path.basename(sam_checkpoint):
+           # Default SAM 1
+           model_type = os.path.basename(sam_checkpoint)[4:9]
+           sam_model_registry_local = sam_model_registry
+           SamPredictorLocal = SamPredictor
+
     if os.path.isfile(sam_checkpoint):
-        sam = sam_model_registry_local[model_type](checkpoint=sam_checkpoint)
+        if "sam3_" in model_type:
+            sam = sam_model_registry_local[model_type](checkpoint_path=sam_checkpoint)
+        else:
+            # Check if model_type is in registry
+            if model_type not in sam_model_registry_local:
+                 # Fallback or error?
+                 # If SAM 2, we need sam2 registry.
+                 if "sam2_" in os.path.basename(sam_checkpoint) or "sam2.1_" in os.path.basename(sam_checkpoint):
+                      sam_model_registry_local = sam2_model_registry
+                      model_type = os.path.splitext(os.path.basename(sam_checkpoint))[0]
+                      from sam2.sam2_image_predictor import SAM2ImagePredictor
+                      SamPredictorLocal = SAM2ImagePredictor # SAM 2 predictor wrapper class
+
+            sam = sam_model_registry_local[model_type](checkpoint=sam_checkpoint)
+
         if platform.system() == "Darwin":
             if "FastSAM" in os.path.basename(sam_checkpoint) or not ia_check_versions.torch_mps_is_available:
                 sam.to(device=torch.device("cpu"))
@@ -198,7 +295,14 @@ def get_sam_predictor(sam_checkpoint):
                 sam.to(device=devices.cpu)
             else:
                 sam.to(device=devices.device)
-        sam_predictor = SamPredictorLocal(sam)
+
+        if "sam3_" in model_type:
+            sam_predictor = SamPredictorLocal(sam)
+        elif "sam2_" in model_type or "sam2.1_" in model_type:
+             # SAM 2 predictor init might be different
+             sam_predictor = SamPredictorLocal(sam)
+        else:
+            sam_predictor = SamPredictorLocal(sam)
     else:
         sam_predictor = None
 
