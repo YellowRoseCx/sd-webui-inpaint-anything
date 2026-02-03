@@ -128,6 +128,7 @@ def generate_sam_masks(
         crop_overlap_ratio: float = 512 / 1500,
         crop_n_points_downscale_factor: int = 1,
         min_mask_region_area: int = 0,
+        sam_text_prompt: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Generate SAM masks.
 
@@ -144,6 +145,7 @@ def generate_sam_masks(
         crop_overlap_ratio (float): crop overlap ratio
         crop_n_points_downscale_factor (int): crop n points downscale factor
         min_mask_region_area (int): min mask region area
+        sam_text_prompt (str): SAM 3 text prompt
 
     Returns:
         List[Dict[str, Any]]: SAM masks
@@ -163,6 +165,7 @@ def generate_sam_masks(
         crop_overlap_ratio=crop_overlap_ratio,
         crop_n_points_downscale_factor=crop_n_points_downscale_factor,
         min_mask_region_area=min_mask_region_area,
+        sam_text_prompt=sam_text_prompt,
     )
     ia_logging.info(f"{sam_mask_generator.__class__.__name__} {sam_id}")
 

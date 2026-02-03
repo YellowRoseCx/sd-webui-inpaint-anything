@@ -20,6 +20,8 @@ required_packages = {
     "onnxruntime": "onnxruntime",
     "hydra": "hydra-core",
     "iopath": "iopath",
+    "ftfy": "ftfy",
+    "regex": "regex",
 }
 
 for package, install_name in required_packages.items():
