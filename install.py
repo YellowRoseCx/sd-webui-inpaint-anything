@@ -22,6 +22,8 @@ required_packages = {
     "iopath": "iopath",
     "ftfy": "ftfy",
     "regex": "regex",
+    "decord": "decord",
+    "pycocotools": "pycocotools",
 }
 
 for package, install_name in required_packages.items():

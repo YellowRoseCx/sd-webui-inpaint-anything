@@ -1,7 +1,7 @@
 import copy
 import os
 import sys
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 import cv2
 import numpy as np
