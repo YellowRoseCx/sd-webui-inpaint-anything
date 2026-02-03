@@ -57,15 +57,36 @@ sam2_model_registry = {
     "sam2_hiera_base_plus": partial(partial_from_end(rename_build_sam2, **end_kwargs), "sam2_hiera_b+.yaml"),
     "sam2_hiera_small": partial(partial_from_end(rename_build_sam2, **end_kwargs), "sam2_hiera_s.yaml"),
     "sam2_hiera_tiny": partial(partial_from_end(rename_build_sam2, **end_kwargs), "sam2_hiera_t.yaml"),
+    "sam2.1_hiera_large": partial(partial_from_end(rename_build_sam2, **end_kwargs), "sam2.1_hiera_l.yaml"),
+    "sam2.1_hiera_base_plus": partial(partial_from_end(rename_build_sam2, **end_kwargs), "sam2.1_hiera_b+.yaml"),
+    "sam2.1_hiera_small": partial(partial_from_end(rename_build_sam2, **end_kwargs), "sam2.1_hiera_s.yaml"),
+    "sam2.1_hiera_tiny": partial(partial_from_end(rename_build_sam2, **end_kwargs), "sam2.1_hiera_t.yaml"),
 }
 
 
 @torch_default_load_cd()
-def get_sam_mask_generator(sam_checkpoint, anime_style_chk=False):
+def get_sam_mask_generator(
+    sam_checkpoint, anime_style_chk=False,
+    pred_iou_thresh=0.88, stability_score_thresh=0.95,
+    stability_score_offset=1.0, box_nms_thresh=0.7,
+    crop_n_layers=0, crop_nms_thresh=0.7,
+    crop_overlap_ratio=512 / 1500, crop_n_points_downscale_factor=1,
+    min_mask_region_area=0
+):
     """Get SAM mask generator.
 
     Args:
         sam_checkpoint (str): SAM checkpoint path
+        anime_style_chk (bool): anime style check
+        pred_iou_thresh (float): prediction iou threshold
+        stability_score_thresh (float): stability score threshold
+        stability_score_offset (float): stability score offset
+        box_nms_thresh (float): box nms threshold
+        crop_n_layers (int): crop n layers
+        crop_nms_thresh (float): crop nms threshold
+        crop_overlap_ratio (float): crop overlap ratio
+        crop_n_points_downscale_factor (int): crop n points downscale factor
+        min_mask_region_area (int): min mask region area
 
     Returns:
         SamAutomaticMaskGenerator or None: SAM mask generator
@@ -86,7 +107,7 @@ def get_sam_mask_generator(sam_checkpoint, anime_style_chk=False):
         sam_model_registry_local = sam_model_registry_mobile
         SamAutomaticMaskGeneratorLocal = SamAutomaticMaskGeneratorMobile
         points_per_batch = 64
-    elif "sam2_" in os.path.basename(sam_checkpoint):
+    elif "sam2_" in os.path.basename(sam_checkpoint) or "sam2.1_" in os.path.basename(sam_checkpoint):
         model_type = os.path.splitext(os.path.basename(sam_checkpoint))[0]
         sam_model_registry_local = sam2_model_registry
         SamAutomaticMaskGeneratorLocal = SAM2AutomaticMaskGenerator
@@ -97,21 +118,20 @@ def get_sam_mask_generator(sam_checkpoint, anime_style_chk=False):
         SamAutomaticMaskGeneratorLocal = SamAutomaticMaskGenerator
         points_per_batch = 24
 
-    pred_iou_thresh = 0.88 if not anime_style_chk else 0.83
-    stability_score_thresh = 0.95 if not anime_style_chk else 0.9
-
-    if "sam2_" in model_type:
-        pred_iou_thresh = round(pred_iou_thresh - 0.18, 2)
-        stability_score_thresh = round(stability_score_thresh - 0.03, 2)
+    if ("sam2_" in model_type or "sam2.1_" in model_type):
         sam2_gen_kwargs = dict(
             points_per_side=32,
             points_per_batch=points_per_batch,
             pred_iou_thresh=pred_iou_thresh,
             stability_score_thresh=stability_score_thresh,
-            stability_score_offset=0.7,
-            crop_n_layers=1,
-            box_nms_thresh=0.7,
-            crop_n_points_downscale_factor=2)
+            stability_score_offset=stability_score_offset,
+            box_nms_thresh=box_nms_thresh,
+            crop_n_layers=crop_n_layers,
+            crop_nms_thresh=crop_nms_thresh,
+            crop_overlap_ratio=crop_overlap_ratio,
+            crop_n_points_downscale_factor=crop_n_points_downscale_factor,
+            min_mask_region_area=min_mask_region_area,
+        )
         if platform.system() == "Darwin":
             sam2_gen_kwargs.update(dict(points_per_side=32, points_per_batch=64, crop_n_points_downscale_factor=1))
 
@@ -130,7 +150,7 @@ def get_sam_mask_generator(sam_checkpoint, anime_style_chk=False):
                 sam.to(device=devices.device)
         sam_gen_kwargs = dict(
             model=sam, points_per_batch=points_per_batch, pred_iou_thresh=pred_iou_thresh, stability_score_thresh=stability_score_thresh)
-        if "sam2_" in model_type:
+        if "sam2_" in model_type or "sam2.1_" in model_type:
             sam_gen_kwargs.update(sam2_gen_kwargs)
         sam_mask_generator = SamAutomaticMaskGeneratorLocal(**sam_gen_kwargs)
     else:

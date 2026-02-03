@@ -5,17 +5,11 @@
 # LICENSE file in the root directory of this source tree.
 
 import os
-import warnings
+from hydra import initialize_config_dir
+from hydra.core.global_hydra import GlobalHydra
 
-from hydra import initialize_config_dir, initialize_config_module  # noqa: F401
-
-warnings.filterwarnings("ignore", category=UserWarning, module="sam2")
-
-inpa_basedir = os.path.abspath(os.path.normpath(os.path.join(os.path.dirname(__file__), "..")))
-configs_path = os.path.join(inpa_basedir, "sam2_configs")
-
-try:
-    initialize_config_dir(configs_path, version_base="1.2")
-except TypeError:
-    initialize_config_dir(configs_path)
-# initialize_config_module("sam2_configs", version_base="1.2")
+if not GlobalHydra.instance().is_initialized():
+    # This points to the `sam2_configs` directory in the root of the repo
+    # Assuming this file is in `sam2/__init__.py`, then `..` is the repo root.
+    config_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "sam2_configs")
+    initialize_config_dir(config_dir=config_dir, version_base="1.2")

@@ -13,13 +13,24 @@ from torchvision.ops.boxes import batched_nms, box_area  # type: ignore
 
 from sam2.modeling.sam2_base import SAM2Base
 from sam2.sam2_image_predictor import SAM2ImagePredictor
-from sam2.utils.amg import (MaskData, area_from_rle, batch_iterator, batched_mask_to_box,
-                            box_xyxy_to_xywh, build_all_layer_point_grids,
-                            calculate_stability_score, coco_encode_rle, generate_crop_boxes,
-                            is_box_near_crop_edge, mask_to_rle_pytorch, remove_small_regions,
-                            rle_to_mask, uncrop_boxes_xyxy, uncrop_masks, uncrop_points)
-
-from .utils.torch_nms import nms
+from sam2.utils.amg import (
+    area_from_rle,
+    batch_iterator,
+    batched_mask_to_box,
+    box_xyxy_to_xywh,
+    build_all_layer_point_grids,
+    calculate_stability_score,
+    coco_encode_rle,
+    generate_crop_boxes,
+    is_box_near_crop_edge,
+    mask_to_rle_pytorch,
+    MaskData,
+    remove_small_regions,
+    rle_to_mask,
+    uncrop_boxes_xyxy,
+    uncrop_masks,
+    uncrop_points,
+)
 
 
 class SAM2AutomaticMaskGenerator:
@@ -42,6 +53,7 @@ class SAM2AutomaticMaskGenerator:
         output_mode: str = "binary_mask",
         use_m2m: bool = False,
         multimask_output: bool = True,
+        **kwargs,
     ) -> None:
         """
         Using a SAM 2 model, generates masks for the entire image.
@@ -137,6 +149,23 @@ class SAM2AutomaticMaskGenerator:
         self.use_m2m = use_m2m
         self.multimask_output = multimask_output
 
+    @classmethod
+    def from_pretrained(cls, model_id: str, **kwargs) -> "SAM2AutomaticMaskGenerator":
+        """
+        Load a pretrained model from the Hugging Face hub.
+
+        Arguments:
+          model_id (str): The Hugging Face repository ID.
+          **kwargs: Additional arguments to pass to the model constructor.
+
+        Returns:
+          (SAM2AutomaticMaskGenerator): The loaded model.
+        """
+        from sam2.build_sam import build_sam2_hf
+
+        sam_model = build_sam2_hf(model_id, **kwargs)
+        return cls(sam_model, **kwargs)
+
     @torch.no_grad()
     def generate(self, image: np.ndarray) -> List[Dict[str, Any]]:
         """
@@ -209,21 +238,13 @@ class SAM2AutomaticMaskGenerator:
             # Prefer masks from smaller crops
             scores = 1 / box_area(data["crop_boxes"])
             scores = scores.to(data["boxes"].device)
-            try:
-                keep_by_nms = batched_nms(
-                    data["boxes"].float(),
-                    scores,
-                    torch.zeros_like(data["boxes"][:, 0]),  # categories
-                    iou_threshold=self.crop_nms_thresh,
-                )
-            except Exception:
-                keep_by_nms = nms(
-                    data["boxes"].float(),
-                    scores,
-                    iou_threshold=self.crop_nms_thresh,
-                )
+            keep_by_nms = batched_nms(
+                data["boxes"].float(),
+                scores,
+                torch.zeros_like(data["boxes"][:, 0]),  # categories
+                iou_threshold=self.crop_nms_thresh,
+            )
             data.filter(keep_by_nms)
-
         data.to_numpy()
         return data
 
@@ -255,19 +276,12 @@ class SAM2AutomaticMaskGenerator:
         self.predictor.reset_predictor()
 
         # Remove duplicates within this crop.
-        try:
-            keep_by_nms = batched_nms(
-                data["boxes"].float(),
-                data["iou_preds"],
-                torch.zeros_like(data["boxes"][:, 0]),  # categories
-                iou_threshold=self.box_nms_thresh,
-            )
-        except Exception:
-            keep_by_nms = nms(
-                data["boxes"].float(),
-                data["iou_preds"],
-                iou_threshold=self.box_nms_thresh,
-            )
+        keep_by_nms = batched_nms(
+            data["boxes"].float(),
+            data["iou_preds"],
+            torch.zeros_like(data["boxes"][:, 0]),  # categories
+            iou_threshold=self.box_nms_thresh,
+        )
         data.filter(keep_by_nms)
 
         # Return to the original image frame
@@ -288,8 +302,9 @@ class SAM2AutomaticMaskGenerator:
         orig_h, orig_w = orig_size
 
         # Run model on this batch
-        # points = torch.as_tensor(points, device=self.predictor.device)
-        points = torch.as_tensor(points.astype(np.float32), device=self.predictor.device)
+        points = torch.as_tensor(
+            points, dtype=torch.float32, device=self.predictor.device
+        )
         in_points = self.predictor._transforms.transform_coords(
             points, normalize=normalize, orig_hw=im_size
         )
@@ -402,19 +417,12 @@ class SAM2AutomaticMaskGenerator:
         # Recalculate boxes and remove any new duplicates
         masks = torch.cat(new_masks, dim=0)
         boxes = batched_mask_to_box(masks)
-        try:
-            keep_by_nms = batched_nms(
-                boxes.float(),
-                torch.as_tensor(scores),
-                torch.zeros_like(boxes[:, 0]),  # categories
-                iou_threshold=nms_thresh,
-            )
-        except Exception:
-            keep_by_nms = nms(
-                boxes.float(),
-                torch.as_tensor(scores),
-                iou_threshold=nms_thresh,
-            )
+        keep_by_nms = batched_nms(
+            boxes.float(),
+            torch.as_tensor(scores),
+            torch.zeros_like(boxes[:, 0]),  # categories
+            iou_threshold=nms_thresh,
+        )
 
         # Only recalculate RLEs for masks that have changed
         for i_mask in keep_by_nms:

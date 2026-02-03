@@ -527,6 +527,123 @@ onUiLoaded(async () => {
         // Add mouse event handlers
         targetElement.addEventListener("mousemove", handleMouseMove);
         targetElement.addEventListener("mouseleave", handleMouseLeave);
+
+        // Handle wheel events for zooming
+        function handleWheel(event) {
+            if (fullScreenMode) {
+                event.preventDefault();
+                const zoomSpeed = 0.1;
+                const zoomFactor = event.deltaY > 0 ? (1 - zoomSpeed) : (1 + zoomSpeed);
+                const oldZoomLevel = elemData[elemId].zoomLevel;
+                const newZoomLevel = Math.max(0.1, oldZoomLevel * zoomFactor);
+
+                // Get scrollbar width to right-align the image
+                const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+                const screenWidth = window.innerWidth - scrollbarWidth;
+                const screenHeight = window.innerHeight;
+
+                const mouseX = event.clientX;
+                const mouseY = event.clientY;
+
+                // We want the point under mouse (or center of screen) to stay relatively stable.
+                // However, the original pan logic is complex involving centering.
+                // Simplified approach: Zoom towards center of screen.
+
+                const centerX = screenWidth / 2;
+                const centerY = screenHeight / 2;
+
+                // Current visual position of the element center
+                // panX/panY are translation values applied after scale?
+                // No, transform order is usually right-to-left in CSS string but browser applies:
+                // transform: scale(z) translate(x, y) -> this means scale applies to translation too?
+                // Wait, the string is `scale(...) translate(...)`.
+                // In CSS transform functions:
+                // If I write `scale(2) translate(10px, 10px)`, the translation is scaled to 20px.
+                // If I write `translate(10px, 10px) scale(2)`, the translation is 10px, then object scaled.
+
+                // The code uses: `scale(${elemData[elemId].zoomLevel}) translate(${elemData[elemId].panX}px, ${elemData[elemId].panY}px)`
+                // This means SCALE applies to the TRANSLATION.
+
+                // Let's check `fitToScreen`:
+                // targetElement.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+                // Wait, `fitToScreen` uses `translate(...) scale(...)` order!
+                // But `resetZoom` uses `scale(...) translate(...)`.
+                // And my `handleWheel` used `scale(...) translate(...)`.
+
+                // I should probably stick to `translate(...) scale(...)` which is generally easier to reason about
+                // (translation in screen pixels, then scale around origin).
+                // Or rather, if I use `translate(x,y) scale(s)`, and origin is `0 0`:
+                // The element moves by x,y, then scales by s from top-left (0,0).
+
+                // Let's stick to the order used in `fitToScreen` which sets the initial state: `translate(...) scale(...)`.
+
+                // When zooming in (increasing scale), the element expands from (0,0) (top-left).
+                // To keep the center stationary:
+                // oldCenter = panX + (width * oldZoom) / 2
+                // newCenter = newPanX + (width * newZoom) / 2
+                // We want oldCenter == newCenter (roughly, assuming we zoom to center)
+
+                // But `fitToScreen` calculates offsets based on screen center.
+                // offsetX = (screenWidth - elementWidth * scale) / 2 ...
+
+                // So if we just recalculate offsets using the NEW scale and the SAME centering logic, it should work!
+                // The centering logic depends on element dimensions and screen dimensions.
+
+                const elementWidth = targetElement.offsetWidth;
+                const elementHeight = targetElement.offsetHeight;
+
+                // Get element's coordinates relative to the page (this part in fitToScreen was static?)
+                // Actually `fitToScreen` gets `elementRect` every time.
+                // But we are in fullscreen, the element is already transformed.
+                // We shouldn't rely on `getBoundingClientRect` of the *transformed* element for the base position.
+                // We need the original untransformed position.
+                // `fitToScreen` seems to assume the element is at its natural position in the document flow
+                // when it calculates `elementX` / `elementY`.
+                // But when we are already in fullscreen, we don't want to reset to natural position.
+
+                // Actually, `elemData` stores `panX` and `panY`.
+                // If we assume `panX` and `panY` were calculated to center the image:
+                // panX = (screenWidth - w * s) / 2 - baseX - originX * (1-s)
+
+                // Let's simplify. If we change scale `s` to `s'`, we want the center of the image to stay at the center of the screen.
+                // The center of the screen is fixed.
+                // The center of the image is determined by `panX` and `scale`.
+                // CenterX_screen = panX + (baseX + originX*(1-s)?) ... this is getting complicated because of the `fitToScreen` formula.
+
+                // Alternative: Just update `panX` proportional to the size change to keep center alignment.
+                // The `fitToScreen` formula simplifies if we ignore origin (it was set to 0 0).
+                // offsetX = (screenWidth - elementWidth * scale) / 2 - elementX.
+
+                // If we want to keep it centered:
+                // newPanX = (screenWidth - elementWidth * newZoomLevel) / 2 - elementX
+                // But we don't know `elementX` easily without resetting.
+
+                // However, we know:
+                // oldPanX = (screenWidth - elementWidth * oldZoomLevel) / 2 - elementX
+                // So: elementX = (screenWidth - elementWidth * oldZoomLevel) / 2 - oldPanX
+
+                // Substitute back:
+                // newPanX = (screenWidth - elementWidth * newZoomLevel) / 2 - ((screenWidth - elementWidth * oldZoomLevel) / 2 - oldPanX)
+                // newPanX = oldPanX + (screenWidth/2 - width*newS/2) - (screenWidth/2 - width*oldS/2)
+                // newPanX = oldPanX - (width * newS / 2) + (width * oldS / 2)
+                // newPanX = oldPanX - (elementWidth * (newZoomLevel - oldZoomLevel)) / 2
+
+                // This seems correct for centering!
+
+                const width = targetElement.offsetWidth;
+                const height = targetElement.offsetHeight;
+
+                elemData[elemId].panX = elemData[elemId].panX - (width * (newZoomLevel - oldZoomLevel)) / 2;
+                elemData[elemId].panY = elemData[elemId].panY - (height * (newZoomLevel - oldZoomLevel)) / 2;
+
+                elemData[elemId].zoomLevel = newZoomLevel;
+
+                // Use translate(...) scale(...) order to match fitToScreen
+                targetElement.style.transform = `translate(${elemData[elemId].panX}px, ${elemData[elemId].panY}px) scale(${elemData[elemId].zoomLevel})`;
+            }
+        }
+
+        targetElement.addEventListener("wheel", handleWheel, { passive: false });
     }
 
     applyZoomAndPan(elementIDs.ia_sam_image);

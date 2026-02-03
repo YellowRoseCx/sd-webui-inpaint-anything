@@ -66,6 +66,8 @@ def download_model(sam_model_id):
         url_sam = "https://huggingface.co/Uminosachi/MobileSAM/resolve/main/" + sam_model_id
     elif "sam2_" in sam_model_id:
         url_sam = "https://dl.fbaipublicfiles.com/segment_anything_2/072824/" + sam_model_id
+    elif "sam2.1_" in sam_model_id:
+        url_sam = "https://dl.fbaipublicfiles.com/segment_anything_2/092824/" + sam_model_id
     else:
         url_sam = "https://dl.fbaipublicfiles.com/segment_anything/" + sam_model_id
 
@@ -169,7 +171,12 @@ def run_padding(input_image, pad_scale_width, pad_scale_height, pad_lr_barance, 
 
 @offload_reload_decorator
 @clear_cache_decorator
-def run_sam(input_image, sam_model_id, sam_image, anime_style_chk=False):
+def run_sam(input_image, sam_model_id, sam_image, anime_style_chk=False,
+            pred_iou_thresh=0.88, stability_score_thresh=0.95,
+            stability_score_offset=1.0, box_nms_thresh=0.7,
+            crop_n_layers=0, crop_nms_thresh=0.7,
+            crop_overlap_ratio=512 / 1500, crop_n_points_downscale_factor=1,
+            min_mask_region_area=0):
     global sam_dict
     if not inpalib.sam_file_exists(sam_model_id):
         ret_sam_image = None if sam_image is None else gr.update()
@@ -188,7 +195,13 @@ def run_sam(input_image, sam_model_id, sam_image, anime_style_chk=False):
     ia_logging.info(f"input_image: {input_image.shape} {input_image.dtype}")
 
     try:
-        sam_masks = inpalib.generate_sam_masks(input_image, sam_model_id, anime_style_chk)
+        sam_masks = inpalib.generate_sam_masks(
+            input_image, sam_model_id, anime_style_chk,
+            pred_iou_thresh, stability_score_thresh,
+            stability_score_offset, box_nms_thresh,
+            crop_n_layers, crop_nms_thresh,
+            crop_overlap_ratio, crop_n_points_downscale_factor,
+            min_mask_region_area)
         sam_masks = inpalib.sort_masks_by_area(sam_masks)
         sam_masks = inpalib.insert_mask_to_sam_masks(sam_masks, sam_dict["pad_mask"])
 
@@ -923,12 +936,35 @@ def on_ui_tabs():
                             with gr.Column():
                                 padding_btn = gr.Button("Run Padding", elem_id="padding_btn")
 
+                with gr.Accordion("SAM 2 Parameters", elem_id="sam2_parameters", open=True):
+                    with gr.Row():
+                        with gr.Column():
+                            pred_iou_thresh = gr.Slider(label="Prediction IoU Threshold", elem_id="pred_iou_thresh", minimum=0.0, maximum=1.0, value=0.8, step=0.01,
+                                                        info="Filtering threshold for the model's predicted mask quality.")
+                            stability_score_thresh = gr.Slider(label="Stability Score Threshold", elem_id="stability_score_thresh", minimum=0.0, maximum=1.0, value=0.95, step=0.01,
+                                                               info="Filtering threshold for the stability of the mask.")
+                        with gr.Column():
+                            with gr.Row():
+                                anime_style_chk = gr.Checkbox(label="Post-process Mask (Anime Style)", elem_id="anime_style_chk",
+                                                              show_label=True, interactive=True,
+                                                              info="Enhances segmentation mask detection, particularly in anime style images.")
+                            with gr.Row():
+                                sam_reset_btn = gr.Button("Reset to Defaults", elem_id="sam_reset_btn")
+
+                    with gr.Accordion("Advanced SAM Parameters", elem_id="advanced_sam_parameters", open=False):
+                        with gr.Row():
+                            with gr.Column():
+                                stability_score_offset = gr.Slider(label="Stability Score Offset", elem_id="stability_score_offset", minimum=0.0, maximum=5.0, value=1.0, step=0.1)
+                                box_nms_thresh = gr.Slider(label="Box NMS Threshold", elem_id="box_nms_thresh", minimum=0.0, maximum=1.0, value=0.7, step=0.01)
+                                crop_n_layers = gr.Slider(label="Crop N Layers", elem_id="crop_n_layers", minimum=0, maximum=5, value=0, step=1)
+                                crop_nms_thresh = gr.Slider(label="Crop NMS Threshold", elem_id="crop_nms_thresh", minimum=0.0, maximum=1.0, value=0.7, step=0.01)
+                            with gr.Column():
+                                crop_overlap_ratio = gr.Slider(label="Crop Overlap Ratio", elem_id="crop_overlap_ratio", minimum=0.0, maximum=1.0, value=0.3413, step=0.0001)
+                                crop_n_points_downscale_factor = gr.Slider(label="Crop N Points Downscale Factor", elem_id="crop_n_points_downscale_factor", minimum=1, maximum=5, value=1, step=1)
+                                min_mask_region_area = gr.Slider(label="Min Mask Region Area", elem_id="min_mask_region_area", minimum=0, maximum=1000, value=0, step=1)
+
                 with gr.Row():
-                    with gr.Column():
-                        anime_style_chk = gr.Checkbox(label="Anime Style (Up Detection, Down mask Quality)", elem_id="anime_style_chk",
-                                                      show_label=True, interactive=True)
-                    with gr.Column():
-                        sam_btn = gr.Button("Run Segment Anything", elem_id="sam_btn", variant="primary", interactive=False)
+                    sam_btn = gr.Button("Run Segment Anything", elem_id="sam_btn", variant="primary", interactive=False)
 
                 with gr.Tab("Inpainting", elem_id="inpainting_tab"):
                     with gr.Row():
@@ -1223,7 +1259,23 @@ def on_ui_tabs():
                 fn=None, inputs=None, outputs=None, _js="inpaintAnything_initSamSelMask")
             padding_btn.click(run_padding, inputs=[input_image, pad_scale_width, pad_scale_height, pad_lr_barance, pad_tb_barance, padding_mode],
                               outputs=[input_image, status_text])
-            sam_btn.click(run_sam, inputs=[input_image, sam_model_id, sam_image, anime_style_chk], outputs=[sam_image, status_text]).then(
+            def sam_reset_params():
+                return [0.8, 0.95, 1.0, 0.7, 0, 0.7, 512 / 1500, 1, 0]
+
+            sam_reset_btn.click(
+                fn=sam_reset_params,
+                inputs=None,
+                outputs=[pred_iou_thresh, stability_score_thresh, stability_score_offset, box_nms_thresh, crop_n_layers, crop_nms_thresh, crop_overlap_ratio, crop_n_points_downscale_factor, min_mask_region_area])
+
+            sam_btn.click(
+                run_sam,
+                inputs=[input_image, sam_model_id, sam_image, anime_style_chk,
+                        pred_iou_thresh, stability_score_thresh,
+                        stability_score_offset, box_nms_thresh,
+                        crop_n_layers, crop_nms_thresh,
+                        crop_overlap_ratio, crop_n_points_downscale_factor,
+                        min_mask_region_area],
+                outputs=[sam_image, status_text]).then(
                 fn=None, inputs=None, outputs=None, _js="inpaintAnything_clearSamMask")
             select_btn.click(select_mask, inputs=[input_image, sam_image, invert_chk, ignore_black_chk, sel_mask], outputs=[sel_mask]).then(
                 fn=None, inputs=None, outputs=None, _js="inpaintAnything_clearSelMask")
