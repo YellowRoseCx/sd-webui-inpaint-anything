@@ -108,7 +108,7 @@ class Sam3Wrapper:
         # Convert to list of dicts format expected by Inpaint Anything
         results = []
         for i in range(len(masks)):
-            mask = masks[i].cpu().numpy()
+            mask = masks[i].cpu().numpy().squeeze()
             score = scores[i].item()
             box = boxes[i].cpu().numpy().tolist() # xyxy
 

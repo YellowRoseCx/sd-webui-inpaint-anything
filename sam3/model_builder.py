@@ -545,7 +545,13 @@ def _load_checkpoint(model, checkpoint_path):
     }
     if len(sam3_image_ckpt) == 0:
         # Fallback for checkpoints that don't have "detector." prefix (e.g. HF safetensors)
-        sam3_image_ckpt = ckpt
+        # Try stripping "model." prefix if present
+        if any(k.startswith("model.") for k in ckpt.keys()):
+             sam3_image_ckpt = {k.replace("model.", ""): v for k, v in ckpt.items()}
+        else:
+             sam3_image_ckpt = ckpt
+
+        print(f"SAM 3 Loading Fallback: Loaded {len(sam3_image_ckpt)} keys. First 5 keys: {list(sam3_image_ckpt.keys())[:5]}")
 
     if model.inst_interactive_predictor is not None:
         sam3_image_ckpt.update(
