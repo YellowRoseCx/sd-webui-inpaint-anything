@@ -65,7 +65,10 @@ def download_model(sam_model_id):
     elif "mobile_sam" in sam_model_id:
         url_sam = "https://huggingface.co/Uminosachi/MobileSAM/resolve/main/" + sam_model_id
     elif "sam3_" in sam_model_id:
-        url_sam = "https://huggingface.co/facebook/sam3/resolve/main/sam3.pt"
+        if sam_model_id.endswith(".safetensors"):
+            url_sam = "https://huggingface.co/bodhicitta/sam3/resolve/main/model.safetensors"
+        else:
+            url_sam = "https://huggingface.co/facebook/sam3/resolve/main/sam3.pt"
     elif "sam2_" in sam_model_id:
         url_sam = "https://dl.fbaipublicfiles.com/segment_anything_2/072824/" + sam_model_id
     elif "sam2.1_" in sam_model_id:
