@@ -543,6 +543,10 @@ def _load_checkpoint(model, checkpoint_path):
     sam3_image_ckpt = {
         k.replace("detector.", ""): v for k, v in ckpt.items() if "detector" in k
     }
+    if len(sam3_image_ckpt) == 0:
+        # Fallback for checkpoints that don't have "detector." prefix (e.g. HF safetensors)
+        sam3_image_ckpt = ckpt
+
     if model.inst_interactive_predictor is not None:
         sam3_image_ckpt.update(
             {

@@ -18,10 +18,9 @@ class Sam3Wrapper:
         SamAutomaticMaskGenerator and SamPredictor.
         """
         self.model = model
-        self.processor = Sam3Processor(model, confidence_threshold=0.5)
+        self.processor = Sam3Processor(model, confidence_threshold=0.5, device=model.device)
         # We can store extra kwargs if needed for automatic generation
         self.kwargs = kwargs
-        self.device = model.device
 
         # Internal state for predictor mode
         self._inference_state = None
